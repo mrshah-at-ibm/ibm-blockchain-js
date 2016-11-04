@@ -249,13 +249,9 @@ ibc.prototype.load_chaincode = function(options, cb) {
 						foundGo = true;
 						var file = fs.readFileSync(path.join(unzip_cc_dest, obj[i]), 'utf8');
 						
-						// Step 2a.
-						ibc.chaincode.details.version = find_shim(file);
-						if(ibc.chaincode.details.version !== ''){						//we can't search for functions until we identify the shim version
-							parse_for_invoke(obj[i], file);
-							parse_for_query(obj[i], file);
-							parse_for_init(obj[i], file);
-						}
+						parse_for_invoke(obj[i], file);
+						parse_for_query(obj[i], file);
+						parse_for_init(obj[i], file);
 					}
 				}
 			}
@@ -319,9 +315,7 @@ ibc.prototype.load_chaincode = function(options, cb) {
 			}
 			var i_start = 0;
 			var i_stop = 0;
-			var invokeFunctionName = 'Run';												//use Run for obc peer adn Invoke for hyperledger
-			if(ibc.chaincode.details.version.indexOf('hyperledger/fabric/core/chaincode/shim') >= 0) invokeFunctionName = 'Invoke';
-			
+			var invokeFunctionName = 'Invoke';												//use Run for obc peer adn Invoke for hyperledger
 			for(var i in go_funcs){
 				if(go_funcs[i].name === invokeFunctionName){
 					i_start = go_funcs[i].pos;											//find start and stop positions around the "Invoke()" function
@@ -606,21 +600,25 @@ function read(args, enrollId, cb){
 	}
 
 	var options = {
-		path: '/devops/query'
+		path: '/chaincode'
 	};
+
 	var body = {
-					chaincodeSpec: {
-						type: 'GOLANG',
-						chaincodeID: {
-							name: ibc.chaincode.details.deployed_name,
-						},
-						ctorMsg: {
-							function: 'query',
-							args: args
-						},
-						secureContext: enrollId
-					}
-				};
+		jsonrpc: "2.0",
+		method: "query",
+		params: {
+			type: 1,
+			chaincodeID: {
+				name: ibc.chaincode.details.deployed_name 
+			},
+			ctorMsg: {
+				function: "query",
+				args: args
+        		},
+        		secureContext: enrollId 
+		},
+		id: Date.now() 
+	} 
 	//logger.log('body', body);
 	options.success = function(statusCode, data){
 		logger.log('[ibc-js] (Read) - success:', data);
@@ -740,47 +738,28 @@ function deploy(func, args, deploy_options, enrollId, cb){
 	logger.log('\n\n\t Waiting...');												//this can take awhile
 	
 	var options = {}, body = {};
-	if(ibc.chaincode.details.version.indexOf('hyperledger/fabric/core/chaincode/shim') >= 0){	//hyperledger body format
-		options = {path: '/chaincode'};
-		body = 	{
-					jsonrpc: '2.0',
-					method: 'deploy',
-					params: {
-						type: 1,
-						chaincodeID:{
-							path: ibc.chaincode.details.git_url
-						},
-						ctorMsg: {
-							function: func,
-							args: args
-						},
-						secureContext: enrollId
-					},
-					id: Date.now()
-				};
-	}
-	else{																						//obc-peer body format
-		options = {path: '/devops/deploy'};
-		body = 	{
-					type: 'GOLANG',
-					chaincodeID: {
-							path: ibc.chaincode.details.git_url
-						},
-					ctorMsg:{
-							'function': func,
-							'args': args
-					},
-					secureContext: enrollId
-				};
-	}
-
+	options = {path: '/chaincode'};
+	body = 	{
+		jsonrpc: '2.0',
+		method: 'deploy',
+		params: {
+			type: 1,
+			chaincodeID:{
+				path: ibc.chaincode.details.git_url
+			},
+			ctorMsg: {
+				function: func,
+				args: args
+			},
+			secureContext: enrollId
+		},
+		id: Date.now()
+	};
+		
 	// ---- Success ---- //
 	options.success = function(statusCode, data){
-		if(data.result && ibc.chaincode.details.version.indexOf('hyperledger/fabric/core/chaincode/shim') >= 0){//hyperledger response
-			ibc.chaincode.details.deployed_name = data.result.message;
-		}
-		else ibc.chaincode.details.deployed_name = data.message;												//obc-peer response
-		
+		ibc.chaincode.details.deployed_name = data.result.message;
+	
 		if(!ibc.chaincode.details.deployed_name || ibc.chaincode.details.deployed_name.length < 32){
 			ibc.chaincode.details.deployed_name = '';								//doesnt look right, let code below catch error
 		}
@@ -906,42 +885,24 @@ function build_invoke_func(name){
 			}
 
 			var options = {}, body = {};
-			if(ibc.chaincode.details.version.indexOf('hyperledger/fabric/core/chaincode/shim') >= 0){
-				options = {path: '/chaincode'};
-				body = {
-							jsonrpc: '2.0',
-							method: 'invoke',
-							params: {
-								type: 1,
-								chaincodeID:{
-									name: ibc.chaincode.details.deployed_name
-								},
-								ctorMsg: {
-									function: name,
-									args: args
-								},
-								secureContext: enrollId
-							},
-							id: Date.now()
-						};
-			}
-			else{
-				options = {path: '/devops/invoke'};
-				body = {
-							chaincodeSpec: {
-								type: 'GOLANG',
-								chaincodeID: {
-									name: ibc.chaincode.details.deployed_name,
-								},
-								ctorMsg: {
-									function: name,
-									args: args
-								},
-								secureContext: enrollId
-							}
-						};
-			}
-			
+			options = {path: '/chaincode'};
+			body = {
+				jsonrpc: '2.0',
+				method: 'invoke',
+				params: {
+					type: 1,
+					chaincodeID:{
+						name: ibc.chaincode.details.deployed_name
+					},
+					ctorMsg: {
+						function: name,
+						args: args
+					},
+					secureContext: enrollId
+				},
+				id: Date.now()
+			};
+		
 			options.success = function(statusCode, data){
 				logger.log('[ibc-js]', name, ' - success:', data);
 				ibc.q.push(Date.now());												//new action, add it to queue
@@ -977,42 +938,24 @@ function build_query_func(name){
 			
 			var options = {}, body = {};
 
-			if(ibc.chaincode.details.version.indexOf('hyperledger/fabric/core/chaincode/shim') >= 0){
-				options = {path: '/chaincode'};
-				body = {
-							jsonrpc: '2.0',
-							method: 'query',
-							params: {
-								type: 1,
-								chaincodeID:{
-									name: ibc.chaincode.details.deployed_name
-								},
-								ctorMsg: {
-									function: name,
-									args: args
-								},
-								secureContext: enrollId
-							},
-							id: Date.now()
-						};
-			}
-			else{
-				options = {path: '/devops/query'};
-				body = {
-							chaincodeSpec: {
-								type: 'GOLANG',
-								chaincodeID: {
-									name: ibc.chaincode.details.deployed_name,
-								},
-								ctorMsg: {
-									function: name,
-									args: args
-								},
-								secureContext: enrollId
-							}
-						};
-			}
-			
+			options = {path: '/chaincode'};
+			body = {
+				jsonrpc: '2.0',
+				method: 'query',
+				params: {
+					type: 1,
+					chaincodeID:{
+						name: ibc.chaincode.details.deployed_name
+					},
+					ctorMsg: {
+						function: name,
+						args: args
+					},
+					secureContext: enrollId
+				},
+				id: Date.now()
+			};
+		
 			options.success = function(statusCode, data){
 				logger.log('[ibc-js]', name, ' - success:', data);
 				if(cb){
